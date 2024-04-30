@@ -1,4 +1,5 @@
 import requests
+from requests.packages.urllib3.exceptions import InsecureRequestWarning
 from bs4 import BeautifulSoup
 import os
 import threading
@@ -7,12 +8,19 @@ from stem.process import *
 import urllib.parse
 import sys
 
-def start_tor(socks_port):
+# Disable SSL certificate verification warning
+requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
+
+def start_tor(data_directory, socks_port):
     print(f"Starting Tor process with SOCKS port {socks_port}...")
     try:
+        # Ensure that the parent directory exists
+        os.makedirs(data_directory, exist_ok=True)
+        
         tor_process = stem.process.launch_tor_with_config(
             config = {
                 'SocksPort': str(socks_port),
+                'DataDirectory': data_directory,
                 'ExitNodes': '{us}'  # Optional: specify exit nodes
             },
             init_msg_handler = print,
@@ -100,36 +108,38 @@ def get_remote_file_size(url, socks_port):
         return 0
 
 class DownloadThread(threading.Thread):
-    def __init__(self, socks_port, *args, **kwargs):
+    def __init__(self, data_directory, socks_port, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.data_directory = data_directory
         self.socks_port = socks_port
+
+    def run(self):
+        tor_process = start_tor(self.data_directory, self.socks_port)
+        if tor_process:
+            try:
+                download_files_from_page(url, self.data_directory, self.socks_port)
+            finally:
+                stop_tor(tor_process)
 
 def main(url):
     num_threads = 5  # Number of threads
-    output_directory = "downloaded_files"
+    output_directory = "data_directory"
     if not os.path.exists(output_directory):
         os.makedirs(output_directory)
     
-    tor_processes = []
     threads = []
 
-    # Start Tor processes and threads
+    # Start threads
     for i in range(num_threads):
+        data_directory = os.path.join("data_directory", f"tor_{i}")
         socks_port = 9050 + i
-        tor_process = start_tor(socks_port)
-        if tor_process:
-            tor_processes.append(tor_process)
-            thread = DownloadThread(socks_port=socks_port, target=download_files_from_page, args=(url, output_directory, socks_port))
-            thread.start()
-            threads.append(thread)
+        thread = DownloadThread(data_directory, socks_port)
+        thread.start()
+        threads.append(thread)
 
     # Wait for all threads to complete
     for thread in threads:
         thread.join()
-
-    # Stop Tor processes
-    for tor_process in tor_processes:
-        stop_tor(tor_process)
 
     print("Download completed!")
 
