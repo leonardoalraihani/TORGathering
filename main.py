@@ -54,6 +54,7 @@ def download_file(url, filepath, socks_port, max_retries=99999):
                 for chunk in response.iter_content(chunk_size=1024):
                     if chunk:
                         f.write(chunk)
+                        print(f"Written chunk to {filepath}.")
             print(f"Download of {url} completed.")
             return  # Exit the function if download is successful
         except Exception as e:
@@ -87,8 +88,10 @@ def get_links_from_page(url, socks_port, max_retries=99999):
                 href = link['href']
                 if href.endswith('/'):
                     links['directories'].append(href)
+                    print(f"Found directory link: {href}")
                 elif '.' in href:
                     links['files'].append(href)
+                    print(f"Found file link: {href}")
             print(f"Links extraction from {url} completed.")
             return links  # Exit the function if links extraction is successful
         except Exception as e:
@@ -152,12 +155,14 @@ class DownloadThread(threading.Thread):
         self.socks_port = socks_port
 
     def run(self):
+        print(f"Thread {self.name} started.")
         tor_process = start_tor(self.data_directory, self.socks_port)
         if tor_process:
             try:
                 download_files_from_page(url, self.data_directory, self.socks_port)
             finally:
                 stop_tor(tor_process)
+        print(f"Thread {self.name} finished.")
 
 def main(url):
     print(f"Downloading files from {url}...")
