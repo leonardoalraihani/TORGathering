@@ -57,10 +57,10 @@ def download_file(url, filepath, socks_port, max_retries=99999):
                     if chunk:
                         f.write(chunk)
                         print(f"Written chunk to {filepath}.")
-            print(f"Download of {url} completed.")
+            print(f"Download of {url} " + Fore.GREEN + Style.BRIGHT + "completed.")
             return  # Exit the function if download is successful
         except Exception as e:
-            print(f"Error downloading {url}: {str(e)}")
+            print(Fore.RED + Style.BRIGHT + "Error" + Style.RESET_ALL + f" downloading {url}: {str(e)}")
             retries += 1
             if retries < max_retries:
                 print(f"Retrying download... Attempt {retries}/{max_retries}")
@@ -90,17 +90,17 @@ def get_links_from_page(url, socks_port, max_retries=99999):
                 href = link['href']
                 if href.endswith('/'):
                     links['directories'].append(href)
-                    print(f"Found directory link: {href}")
+                    print(Fore.BLUE + Style.BRIGHT + "Found" + Style.RESET_ALL + f" directory link: {href}")
                 elif '.' in href:
                     links['files'].append(href)
-                    print(f"Found file link: {href}")
-            print(f"Links extraction from {url} completed.")
+                    print(Fore.BLUE + Style.BRIGHT + "Found" + Style.RESET_ALL + f" file link: {href}")
+            print(f"Links extraction from {url}" + Fore.GREEN + Style.BRIGHT + "completed.")
             return links  # Exit the function if links extraction is successful
         except Exception as e:
-            print(f"Error getting links from {url}: {str(e)}")
+            print(Fore.RED + Style.BRIGHT + "Error" + Style.RESET_ALL + f" getting links from {url}: {str(e)}")
             retries += 1
             if retries < max_retries:
-                print(f"Retrying links extraction... Attempt {retries}/{max_retries}")
+                print(Fore.YELLOW + Style.BRIGHT + "Retrying" + Style.RESET_ALL + f" links extraction... Attempt {retries}/{max_retries}")
                 time.sleep(5)  # Wait for a few seconds before retrying
             else:
                 print("Max retries exceeded. Failed to extract links.")
@@ -146,7 +146,7 @@ def get_remote_file_size(url, socks_port):
             print(f"No 'content-length' header for {url}.")
             return 0  # Or handle this situation differently
     except Exception as e:
-        print(f"Error getting file size for {url}: {str(e)}")
+        print(Fore.RED + Style.BRIGHT + "Error" + Style.RESET_ALL + f" getting file size for {url}: {str(e)}")
         return 0
 
 
@@ -168,7 +168,7 @@ class DownloadThread(threading.Thread):
 
 def main(url):
     print(f"Downloading files from {url}...")
-    num_threads = 3  # Number of threads
+    num_threads = 30  # Number of threads
     output_directory = "data_directory"
     if not os.path.exists(output_directory):
         os.makedirs(output_directory)
@@ -187,7 +187,7 @@ def main(url):
     for thread in threads:
         thread.join()
 
-    print("Download completed!")
+    print("Download " + Fore.GREEN + Style.BRIGHT + "completed.")
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
