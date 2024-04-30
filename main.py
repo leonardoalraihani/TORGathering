@@ -68,7 +68,7 @@ def download_file(url, filepath, socks_port, max_retries=99999):
                     os.remove(filepath)
                 return  # Exit the function if max retries exceeded
 
-def get_links_from_page(url, socks_port, max_retries=5):
+def get_links_from_page(url, socks_port, max_retries=99999):
     print(f"Getting links from {url}...")
     links = {'directories': [], 'files': []}
     retries = 0
