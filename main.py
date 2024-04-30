@@ -8,6 +8,7 @@ import urllib.parse
 import sys
 
 def start_tor(socks_port):
+    print(f"Starting Tor process with SOCKS port {socks_port}...")
     tor_process = stem.process.launch_tor_with_config(
         config = {
             'SocksPort': str(socks_port),
@@ -15,10 +16,13 @@ def start_tor(socks_port):
         },
         init_msg_handler = print,
     )
+    print(f"Tor process with SOCKS port {socks_port} started.")
     return tor_process
 
 def stop_tor(tor_process):
+    print("Stopping Tor process...")
     tor_process.kill()
+    print("Tor process stopped.")
 
 def download_file(url, filepath):
     try:
