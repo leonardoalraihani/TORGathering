@@ -4,6 +4,7 @@ from bs4 import BeautifulSoup
 import os
 import threading
 import socks
+import time
 from stem.process import *
 import urllib.parse
 import sys
@@ -28,7 +29,7 @@ def start_tor(data_directory, socks_port):
         print(f"Tor process with SOCKS port {socks_port} started.")
         return tor_process
     except Exception as e:
-        print(f"Timeout occurred while starting Tor process.{str(e)}")
+        print(f"Timeout occurred while starting Tor process: {str(e)}")
         return None
 
 def stop_tor(tor_process):
@@ -37,25 +38,38 @@ def stop_tor(tor_process):
         tor_process.kill()
         print("Tor process stopped.")
 
-def download_file(url, filepath, socks_port):
-    try:
-        session = requests.session()
-        session.proxies = {
-            'http': f'socks5h://localhost:{socks_port}',
-            'https': f'socks5h://localhost:{socks_port}'
-        }
-        session.verify = False
-        response = session.get(url, stream=True)
-        with open(filepath, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=1024):
-                if chunk:
-                    f.write(chunk)
-    except Exception as e:
-        print(f"Error downloading {url}: {str(e)}")
-        if os.path.exists(filepath):
-            os.remove(filepath)
+def download_file(url, filepath, socks_port, max_retries=99999):
+    retries = 0
+    while retries < max_retries:
+        try:
+            print(f"Downloading {url} to {filepath}...")
+            session = requests.session()
+            session.proxies = {
+                'http': f'socks5h://localhost:{socks_port}',
+                'https': f'socks5h://localhost:{socks_port}'
+            }
+            session.verify = False
+            response = session.get(url, stream=True)
+            with open(filepath, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=1024):
+                    if chunk:
+                        f.write(chunk)
+            print(f"Download of {url} completed.")
+            return  # Exit the function if download is successful
+        except Exception as e:
+            print(f"Error downloading {url}: {str(e)}")
+            retries += 1
+            if retries < max_retries:
+                print(f"Retrying download... Attempt {retries}/{max_retries}")
+                time.sleep(5)  # Wait for a few seconds before retrying
+            else:
+                print("Max retries exceeded. Failed to download the file.")
+                if os.path.exists(filepath):
+                    os.remove(filepath)
+                return  # Exit the function if max retries exceeded
 
 def get_links_from_page(url, socks_port):
+    print(f"Getting links from {url}...")
     links = {'directories': [], 'files': []}
     try:
         session = requests.session()
@@ -73,6 +87,7 @@ def get_links_from_page(url, socks_port):
                 links['directories'].append(href)
             elif '.' in href:
                 links['files'].append(href)
+        print(f"Links extraction from {url} completed.")
     except Exception as e:
         print(f"Error getting links from {url}: {str(e)}")
     return links
@@ -87,8 +102,11 @@ def download_files_from_page(url, directory, socks_port):
             local_size = os.path.getsize(filename)
             remote_size = get_remote_file_size(file_url, socks_port)
             if local_size != remote_size:
+                print(f"File {filename} already exists but sizes do not match. Re-downloading...")
                 os.remove(filename)
                 download_file(file_url, filename, socks_port)
+            else:
+                print(f"File {filename} already exists. Skipping download.")
         else:
             download_file(file_url, filename, socks_port)
     for directory_link in links['directories']:
@@ -127,6 +145,7 @@ class DownloadThread(threading.Thread):
                 stop_tor(tor_process)
 
 def main(url):
+    print(f"Downloading files from {url}...")
     num_threads = 3  # Number of threads
     output_directory = "data_directory"
     if not os.path.exists(output_directory):
