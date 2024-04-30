@@ -10,9 +10,25 @@ import urllib.parse
 import sys
 import colorama
 from colorama import Fore, Style
+import queue
 
 # Disable SSL certificate verification warning
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
+
+class RoundRobinQueue:
+    def __init__(self, num_threads):
+        self.queue = queue.Queue()
+        self.num_threads = num_threads
+
+    def put(self, item):
+        self.queue.put(item)
+
+    def get(self):
+        try:
+            item = self.queue.get(block=False)
+            return item
+        except queue.Empty:
+            return None
 
 def start_tor(data_directory, socks_port):
     print(f"Starting Tor process with SOCKS port {socks_port}...")
@@ -151,20 +167,30 @@ def get_remote_file_size(url, socks_port):
 
 
 class DownloadThread(threading.Thread):
-    def __init__(self, data_directory, socks_port, *args, **kwargs):
+    def __init__(self, data_directory, socks_port, folder_queue, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.data_directory = data_directory
         self.socks_port = socks_port
+        self.folder_queue = folder_queue
+        self.tor_process = None
 
     def run(self):
         print(f"Thread {self.name} started.")
-        tor_process = start_tor(self.data_directory, self.socks_port)
-        if tor_process:
+        self.tor_process = start_tor(self.data_directory, self.socks_port)
+        if self.tor_process:
             try:
-                download_files_from_page(url, self.data_directory, self.socks_port)
+                while True:
+                    folder_url = self.folder_queue.get()
+                    if folder_url is None:
+                        print(f"Thread {self.name} exiting as no more folders to process")
+                        break
+                    print(f"Thread {self.name} processing {folder_url}")
+                    download_files_from_page(folder_url, self.data_directory, self.socks_port)
+                    print(f"Thread {self.name} finished processing {folder_url}")
             finally:
-                stop_tor(tor_process)
-        print(f"Thread {self.name} finished.")
+                stop_tor(self.tor_process)
+        else:
+            print(f"Thread {self.name} failed to start Tor. Exiting.")
 
 def main(url):
     print(f"Downloading files from {url}...")
@@ -174,20 +200,26 @@ def main(url):
         os.makedirs(output_directory)
     
     threads = []
+    folder_queue = queue.Queue()
 
     # Start threads
     for i in range(num_threads):
         data_directory = os.path.join("data_directory", f"tor_{i}")
         socks_port = 9050 + i
-        thread = DownloadThread(data_directory, socks_port)
+        thread = DownloadThread(data_directory, socks_port, folder_queue)
         thread.start()
         threads.append(thread)
 
+    # Enqueue the URL to the folder queue
+    folder_queue.put(url)
+
     # Wait for all threads to complete
     for thread in threads:
+        folder_queue.put(None)  # Signal threads to exit
         thread.join()
 
-    print("Download " + Fore.GREEN + Style.BRIGHT + "completed.")
+    print("Download completed.")
+
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
