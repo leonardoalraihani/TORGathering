@@ -3,7 +3,7 @@ from bs4 import BeautifulSoup
 import os
 import threading
 import socks
-import stem.process
+from stem.process import *
 import urllib.parse
 import sys
 
@@ -19,8 +19,8 @@ def start_tor(socks_port):
         )
         print(f"Tor process with SOCKS port {socks_port} started.")
         return tor_process
-    except stem.process.Timeout:
-        print("Timeout occurred while starting Tor process.")
+    except Exception as e:
+        print(f"Timeout occurred while starting Tor process.{str(e)}")
         return None
 
 def stop_tor(tor_process):
