@@ -68,29 +68,38 @@ def download_file(url, filepath, socks_port, max_retries=99999):
                     os.remove(filepath)
                 return  # Exit the function if max retries exceeded
 
-def get_links_from_page(url, socks_port):
+def get_links_from_page(url, socks_port, max_retries=5):
     print(f"Getting links from {url}...")
     links = {'directories': [], 'files': []}
-    try:
-        session = requests.session()
-        session.proxies = {
-            'http': f'socks5h://localhost:{socks_port}',
-            'https': f'socks5h://localhost:{socks_port}'
-        }
-        session.verify = False
-        
-        response = session.get(url)
-        soup = BeautifulSoup(response.content, 'html.parser')
-        for link in soup.find_all('a', href=True):
-            href = link['href']
-            if href.endswith('/'):
-                links['directories'].append(href)
-            elif '.' in href:
-                links['files'].append(href)
-        print(f"Links extraction from {url} completed.")
-    except Exception as e:
-        print(f"Error getting links from {url}: {str(e)}")
-    return links
+    retries = 0
+    while retries < max_retries:
+        try:
+            session = requests.session()
+            session.proxies = {
+                'http': f'socks5h://localhost:{socks_port}',
+                'https': f'socks5h://localhost:{socks_port}'
+            }
+            session.verify = False
+            
+            response = session.get(url)
+            soup = BeautifulSoup(response.content, 'html.parser')
+            for link in soup.find_all('a', href=True):
+                href = link['href']
+                if href.endswith('/'):
+                    links['directories'].append(href)
+                elif '.' in href:
+                    links['files'].append(href)
+            print(f"Links extraction from {url} completed.")
+            return links  # Exit the function if links extraction is successful
+        except Exception as e:
+            print(f"Error getting links from {url}: {str(e)}")
+            retries += 1
+            if retries < max_retries:
+                print(f"Retrying links extraction... Attempt {retries}/{max_retries}")
+                time.sleep(5)  # Wait for a few seconds before retrying
+            else:
+                print("Max retries exceeded. Failed to extract links.")
+                return links  # Return the links extracted so far
 
 
 def download_files_from_page(url, directory, socks_port):
@@ -124,11 +133,17 @@ def get_remote_file_size(url, socks_port):
             'https': f'socks5h://localhost:{socks_port}'
         }
         session.verify = False
-        response = session.head(url)
-        return int(response.headers['content-length'])
+        response = session.get(url, stream=True)
+        # Check if 'content-length' header exists
+        if 'content-length' in response.headers:
+            return int(response.headers.get('content-length'))
+        else:
+            print(f"No 'content-length' header for {url}.")
+            return 0  # Or handle this situation differently
     except Exception as e:
         print(f"Error getting file size for {url}: {str(e)}")
         return 0
+
 
 class DownloadThread(threading.Thread):
     def __init__(self, data_directory, socks_port, *args, **kwargs):
