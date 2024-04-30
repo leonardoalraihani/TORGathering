@@ -44,6 +44,7 @@ def download_file(url, filepath, socks_port):
             'http': f'socks5h://localhost:{socks_port}',
             'https': f'socks5h://localhost:{socks_port}'
         }
+        session.verify = False
         response = session.get(url, stream=True)
         with open(filepath, 'wb') as f:
             for chunk in response.iter_content(chunk_size=1024):
@@ -62,6 +63,8 @@ def get_links_from_page(url, socks_port):
             'http': f'socks5h://localhost:{socks_port}',
             'https': f'socks5h://localhost:{socks_port}'
         }
+        session.verify = False
+        
         response = session.get(url)
         soup = BeautifulSoup(response.content, 'html.parser')
         for link in soup.find_all('a', href=True):
@@ -73,6 +76,7 @@ def get_links_from_page(url, socks_port):
     except Exception as e:
         print(f"Error getting links from {url}: {str(e)}")
     return links
+
 
 def download_files_from_page(url, directory, socks_port):
     links = get_links_from_page(url, socks_port)
@@ -101,6 +105,7 @@ def get_remote_file_size(url, socks_port):
             'http': f'socks5h://localhost:{socks_port}',
             'https': f'socks5h://localhost:{socks_port}'
         }
+        session.verify = False
         response = session.head(url)
         return int(response.headers['content-length'])
     except Exception as e:
@@ -122,7 +127,7 @@ class DownloadThread(threading.Thread):
                 stop_tor(tor_process)
 
 def main(url):
-    num_threads = 5  # Number of threads
+    num_threads = 3  # Number of threads
     output_directory = "data_directory"
     if not os.path.exists(output_directory):
         os.makedirs(output_directory)
