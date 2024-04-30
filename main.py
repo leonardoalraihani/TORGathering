@@ -8,6 +8,8 @@ import time
 from stem.process import *
 import urllib.parse
 import sys
+import colorama
+from colorama import Fore, Style
 
 # Disable SSL certificate verification warning
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
@@ -70,7 +72,7 @@ def download_file(url, filepath, socks_port, max_retries=99999):
                 return  # Exit the function if max retries exceeded
 
 def get_links_from_page(url, socks_port, max_retries=99999):
-    print(f"Getting links from {url}...")
+    print(Fore.GREEN + Style.BRIGHT + "Getting" + Style.RESET_ALL + " links from", url, '...')
     links = {'directories': [], 'files': []}
     retries = 0
     while retries < max_retries:
