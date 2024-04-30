@@ -34,6 +34,8 @@ def download_file(url, filepath):
                     f.write(chunk)
     except Exception as e:
         print(f"Error downloading {url}: {str(e)}")
+        if os.path.exists(filepath):
+            os.remove(filepath)
 
 def get_links_from_page(url):
     links = {'directories': [], 'files': []}
@@ -60,13 +62,33 @@ def download_files_from_page(url, directory):
     for file in links['files']:
         file_url = urllib.parse.urljoin(url, file)
         filename = os.path.join(directory, os.path.basename(file))
-        download_file(file_url, filename)
+        if os.path.exists(filename):
+            local_size = os.path.getsize(filename)
+            remote_size = get_remote_file_size(file_url)
+            if local_size != remote_size:
+                os.remove(filename)
+                download_file(file_url, filename)
+        else:
+            download_file(file_url, filename)
     for directory_link in links['directories']:
         directory_url = urllib.parse.urljoin(url, directory_link)
         subdir = os.path.join(directory, os.path.basename(directory_link))
         if not os.path.exists(subdir):
             os.makedirs(subdir)
         download_files_from_page(directory_url, subdir)
+
+def get_remote_file_size(url):
+    try:
+        session = requests.session()
+        session.proxies = {
+            'http': f'socks5h://localhost:{threading.current_thread().socks_port}',
+            'https': f'socks5h://localhost:{threading.current_thread().socks_port}'
+        }
+        response = session.head(url)
+        return int(response.headers['content-length'])
+    except Exception as e:
+        print(f"Error getting file size for {url}: {str(e)}")
+        return 0
 
 class DownloadThread(threading.Thread):
     def __init__(self, socks_port, *args, **kwargs):
