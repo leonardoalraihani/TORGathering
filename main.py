@@ -126,7 +126,6 @@ def get_links_from_page(url, base_url, socks_port, max_retries=3):
 
 def download_files_from_page(url, directory, socks_port):
     links = get_links_from_page(url, url, socks_port)  # Pass url to get_links_from_page function
-    threads = []
     for file in links['files']:
         file_url = urllib.parse.urljoin(url, file)
         filename = os.path.join(directory, os.path.basename(file))
@@ -134,21 +133,12 @@ def download_files_from_page(url, directory, socks_port):
             local_size = os.path.getsize(filename)
             remote_size = get_remote_file_size(file_url, socks_port)
             if local_size != remote_size:
-                print(f"File {filename} already exists but sizes do not match. Re-downloading...")
-                os.remove(filename)
-                thread = threading.Thread(target=download_file, args=(file_url, filename, socks_port))
-                threads.append(thread)
-                thread.start()
+                print(f"File {filename} already exists but sizes do not match. Resuming download...")
+                resume_download(file_url, filename, socks_port, local_size)
             else:
                 print(f"File {filename} already exists. Skipping download.")
         else:
-            thread = threading.Thread(target=download_file, args=(file_url, filename, socks_port))
-            threads.append(thread)
-            thread.start()
-
-    # Wait for all threads to complete
-    for thread in threads:
-        thread.join()
+            download_file(file_url, filename, socks_port)
 
     for directory_link in links['directories']:
         directory_url = urllib.parse.urljoin(url, directory_link)
@@ -156,6 +146,26 @@ def download_files_from_page(url, directory, socks_port):
         if not os.path.exists(subdir):
             os.makedirs(subdir)
         download_files_from_page(directory_url, subdir, socks_port)  # Pass socks_port recursively
+
+def resume_download(url, filepath, socks_port, start_byte):
+    try:
+        print(f"Resuming download of {url} to {filepath} from byte {start_byte}...")
+        session = requests.session()
+        session.proxies = {
+            'http': f'socks5h://localhost:{socks_port}',
+            'https': f'socks5h://localhost:{socks_port}'
+        }
+        session.verify = False
+        headers = {'Range': f'bytes={start_byte}-'}
+        response = session.get(url, headers=headers, stream=True)
+        with open(filepath, 'ab') as f:  # 'ab' mode for appending binary data
+            for chunk in response.iter_content(chunk_size=1024):
+                if chunk:
+                    f.write(chunk)
+                    print(f"Written chunk to {filepath}.")
+        print(f"Resumed download of {url} " + Fore.GREEN + Style.BRIGHT + "completed.")
+    except Exception as e:
+        print(Fore.RED + Style.BRIGHT + "Error" + Style.RESET_ALL + f" resuming download of {url}: {str(e)}")
 
 
 def get_remote_file_size(url, socks_port):
