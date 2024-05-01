@@ -56,7 +56,7 @@ def stop_tor(tor_process):
         tor_process.kill()
         print("Tor process stopped.")
 
-def download_file(url, filepath, socks_port, max_retries=99999):
+def download_file(url, filepath, socks_port, max_retries=3):
     retries = 0
     while retries < max_retries:
         try:
@@ -87,7 +87,7 @@ def download_file(url, filepath, socks_port, max_retries=99999):
                     os.remove(filepath)
                 return  # Exit the function if max retries exceeded
 
-def get_links_from_page(url, socks_port, max_retries=99999):
+def get_links_from_page(url, base_url, socks_port, max_retries=3):
     print(Fore.GREEN + Style.BRIGHT + "Getting" + Style.RESET_ALL + " links from", url, '...')
     links = {'directories': [], 'files': []}
     retries = 0
@@ -104,12 +104,14 @@ def get_links_from_page(url, socks_port, max_retries=99999):
             soup = BeautifulSoup(response.content, 'html.parser')
             for link in soup.find_all('a', href=True):
                 href = link['href']
-                if href.endswith('/'):
-                    links['directories'].append(href)
-                    print(Fore.BLUE + Style.BRIGHT + "Found" + Style.RESET_ALL + f" directory link: {href}")
-                elif '.' in href:
-                    links['files'].append(href)
-                    print(Fore.BLUE + Style.BRIGHT + "Found" + Style.RESET_ALL + f" file link: {href}")
+                full_link = urllib.parse.urljoin(base_url, href)
+                if full_link.startswith(base_url):  # Check if the full link is within the base URL
+                    if href.endswith('/'):
+                        links['directories'].append(href)
+                        print(Fore.BLUE + Style.BRIGHT + "Found" + Style.RESET_ALL + f" directory link: {href}")
+                    elif '.' in href:
+                        links['files'].append(href)
+                        print(Fore.BLUE + Style.BRIGHT + "Found" + Style.RESET_ALL + f" file link: {href}")
             print(f"Links extraction from {url}" + Fore.GREEN + Style.BRIGHT + "completed.")
             return links  # Exit the function if links extraction is successful
         except Exception as e:
@@ -122,9 +124,9 @@ def get_links_from_page(url, socks_port, max_retries=99999):
                 print("Max retries exceeded. Failed to extract links.")
                 return links  # Return the links extracted so far
 
-
 def download_files_from_page(url, directory, socks_port):
-    links = get_links_from_page(url, socks_port)
+    links = get_links_from_page(url, url, socks_port)  # Pass url to get_links_from_page function
+    threads = []
     for file in links['files']:
         file_url = urllib.parse.urljoin(url, file)
         filename = os.path.join(directory, os.path.basename(file))
@@ -134,17 +136,27 @@ def download_files_from_page(url, directory, socks_port):
             if local_size != remote_size:
                 print(f"File {filename} already exists but sizes do not match. Re-downloading...")
                 os.remove(filename)
-                download_file(file_url, filename, socks_port)
+                thread = threading.Thread(target=download_file, args=(file_url, filename, socks_port))
+                threads.append(thread)
+                thread.start()
             else:
                 print(f"File {filename} already exists. Skipping download.")
         else:
-            download_file(file_url, filename, socks_port)
+            thread = threading.Thread(target=download_file, args=(file_url, filename, socks_port))
+            threads.append(thread)
+            thread.start()
+
+    # Wait for all threads to complete
+    for thread in threads:
+        thread.join()
+
     for directory_link in links['directories']:
         directory_url = urllib.parse.urljoin(url, directory_link)
         subdir = os.path.join(directory, os.path.basename(directory_link))
         if not os.path.exists(subdir):
             os.makedirs(subdir)
-        download_files_from_page(directory_url, subdir, socks_port)
+        download_files_from_page(directory_url, subdir, socks_port)  # Pass socks_port recursively
+
 
 def get_remote_file_size(url, socks_port):
     try:
@@ -167,63 +179,74 @@ def get_remote_file_size(url, socks_port):
 
 
 class DownloadThread(threading.Thread):
+    tor_processes = {}
+
     def __init__(self, data_directory, socks_port, folder_queue, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.data_directory = data_directory
         self.socks_port = socks_port
         self.folder_queue = folder_queue
-        self.tor_process = None
+
+    def start_tor_process(self):
+        if self.socks_port not in self.tor_processes:
+            print(f"Starting Tor process with SOCKS port {self.socks_port}...")
+            tor_process = start_tor(self.data_directory, self.socks_port)
+            if tor_process:
+                self.tor_processes[self.socks_port] = tor_process
+
+    def stop_tor_process(self):
+        if self.socks_port in self.tor_processes:
+            print(f"Stopping Tor process with SOCKS port {self.socks_port}...")
+            stop_tor(self.tor_processes[self.socks_port])
+            del self.tor_processes[self.socks_port]
 
     def run(self):
-        print(f"Thread {self.name} started.")
-        self.tor_process = start_tor(self.data_directory, self.socks_port)
-        if self.tor_process:
-            try:
-                while True:
-                    folder_url = self.folder_queue.get()
-                    if folder_url is None:
-                        print(f"Thread {self.name} exiting as no more folders to process")
-                        break
-                    print(f"Thread {self.name} processing {folder_url}")
-                    download_files_from_page(folder_url, self.data_directory, self.socks_port)
-                    print(f"Thread {self.name} finished processing {folder_url}")
-            finally:
-                stop_tor(self.tor_process)
-        else:
-            print(f"Thread {self.name} failed to start Tor. Exiting.")
+        self.start_tor_process()
+        try:
+            while True:
+                folder_url = self.folder_queue.get()
+                if folder_url is None:
+                    print(f"Thread {self.name} exiting as no more folders to process")
+                    break
+                print(f"Thread {self.name} processing {folder_url}")
+                download_files_from_page(folder_url, self.data_directory, self.socks_port)
+                print(f"Thread {self.name} finished processing {folder_url}")
+        finally:
+            self.stop_tor_process()
 
-def main(url):
-    print(f"Downloading files from {url}...")
-    num_threads = 30  # Number of threads
+
+def main(url, num_threads):
+    print(f"Downloading files from {url} using {num_threads} threads...")
     output_directory = "data_directory"
     if not os.path.exists(output_directory):
         os.makedirs(output_directory)
     
     threads = []
-    folder_queue = queue.Queue()
+    folder_queue = RoundRobinQueue(num_threads)
 
     # Start threads
     for i in range(num_threads):
         data_directory = os.path.join("data_directory", f"tor_{i}")
         socks_port = 9050 + i
         thread = DownloadThread(data_directory, socks_port, folder_queue)
-        thread.start()
         threads.append(thread)
 
-    # Enqueue the URL to the folder queue
-    folder_queue.put(url)
+    # Enqueue the URLs to the folder queue
+    folder_queue.put(url)  # Enqueue the initial URL
+    for thread in threads:
+        thread.start()  # Start each thread
 
     # Wait for all threads to complete
     for thread in threads:
-        folder_queue.put(None)  # Signal threads to exit
         thread.join()
 
     print("Download completed.")
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("Usage: python script.py <URL>")
+    if len(sys.argv) != 3:
+        print("Usage: python script.py <URL> <num_threads>")
     else:
         url = sys.argv[1]
-        main(url)
+        num_threads = int(sys.argv[2])
+        main(url, num_threads)
